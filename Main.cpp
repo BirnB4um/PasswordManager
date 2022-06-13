@@ -89,6 +89,22 @@ void clear_and_free_all_data() {
 	}
 }
 
+void update_lists() {
+	login_places.clear();
+	usernames.clear();
+	emails.clear();
+	passwords.clear();
+	additionals.clear();
+
+	for (long i = 0; i < item_count; i++) {
+		login_places.push_back((char*)&(decrypted_private_data[i * length_of_one_item]));
+		usernames.push_back((char*)&(decrypted_private_data[i * length_of_one_item + login_length]));
+		emails.push_back((char*)&(decrypted_private_data[i * length_of_one_item + login_length + username_length]));
+		passwords.push_back((char*)&(decrypted_private_data[i * length_of_one_item + login_length + username_length + email_length]));
+		additionals.push_back((char*)&(decrypted_private_data[i * length_of_one_item + login_length + username_length + email_length + password_length]));
+	}
+}
+
 void add_item(char* login_place, char* username, char* email, char* password, char* additional) {
 	uint8_t* old_ptr = decrypted_private_data;
 	decrypted_private_data = new uint8_t[item_count * length_of_one_item + length_of_one_item];
@@ -107,12 +123,77 @@ void add_item(char* login_place, char* username, char* email, char* password, ch
 	memcpy(&(decrypted_private_data[item_count * length_of_one_item + login_length + username_length + email_length + password_length]), additional, strlen(additional) >= additional_length ? additional_length - 1 : strlen(additional));
 
 	item_count++;
+
+	update_lists();
+}
+
+void shrink_data_to_lists() {
+	uint8_t* new_list = new uint8_t[login_places.size() * length_of_one_item];
+
+	for (int i = 0; i < login_places.size(); i++) {
+		memcpy(&(new_list[i * length_of_one_item]), login_places[i], login_length);
+		memcpy(&(new_list[i * length_of_one_item + login_length]), usernames[i], username_length);
+		memcpy(&(new_list[i * length_of_one_item + login_length + username_length]), emails[i], email_length);
+		memcpy(&(new_list[i * length_of_one_item + login_length + username_length + email_length]), passwords[i], password_length);
+		memcpy(&(new_list[i * length_of_one_item + login_length + username_length + email_length + password_length]), additionals[i], additional_length);
+	}
+
+	memset(decrypted_private_data, 0, item_count * length_of_one_item);
+	delete[] decrypted_private_data;
+	decrypted_private_data = new_list;
+
+	item_count = login_places.size();
+
+	update_lists();
 }
 
 uint8_t* get_hash(uint8_t* data, size_t size) {
 	SHA256 sha;
 	sha.update(data, size);
 	return sha.digest();
+}
+
+void save() {
+	size_t out_len = 0;
+	encrypted_private_data = (uint8_t*)xxtea_encrypt(decrypted_private_data, item_count * length_of_one_item, pw, &out_len);
+	uint8_t* save_data = new uint8_t[37 + out_len];
+	save_data[0] = 1;//version
+	memcpy(&(save_data[1]), pw_hash, 32);//pw hash
+	memcpy(&(save_data[33]), &item_count, sizeof(int));//item count
+	memcpy(&(save_data[37]), encrypted_private_data, out_len);//encrypted data
+	save_to_file("encrypted.pw", (char*)save_data, 37 + out_len);
+	delete[] save_data;
+}
+
+void clear_input_buffer() {
+	//while ((getchar()) != '\n');
+	std::cin.ignore(INT_MAX, '\n');
+}
+
+bool is_string_number(std::string str) {
+	for (int i = 0; i < str.length(); i++) {
+		if (str[i] < '0' || str[i]>'9' || str[i] == '-') {
+			return false;
+		}
+	}
+	return true;
+}
+
+void print_help() {
+	std::cout << " === HELP MENU ===\n"
+		<< "    - commands: -\n"
+		<< " help - shows this menu\n"
+		<< " exit - cleans up data and exits\n"
+		<< " cls - clears console\n"
+		<< " short - prints list of all item names\n"
+		<< " long - prints detailed list of all items\n"
+		<< " add - add an item to list\n"
+		<< " remove - remove item by number\n"
+		<< " edit - edit item by number\n"
+		<< " password - prints current password\n"
+		<< " new_pw - set new password\n"
+		<< "============================="
+		<< std::endl;
 }
 
 int main() {
@@ -126,9 +207,14 @@ int main() {
 		std::cin >> in;
 		if (int(in) == 121 || int(in) == 89) {
 			system("cls");
+			std::string new_pw;
+			clear_input_buffer();
 			std::cout << "set password for new file:";
+			std::getline(std::cin, new_pw);
 			memset(pw, 0, 1000);
-			std::cin >> pw;
+			for (int i = 0; i < new_pw.length() && i < 999; i++) {
+				pw[i] = new_pw[i];
+			}
 			std::cout << "new password set to:" << pw << std::endl;
 
 			char out_data[37];
@@ -156,6 +242,9 @@ int main() {
 		return 0;
 	}
 
+	system("cls");
+	std::cout << "to clear up all data from RAM close application with 'exit'" << std::endl;
+
 	//check version
 	if (file_data[0] != 1) {
 		system("cls");
@@ -173,14 +262,17 @@ int main() {
 		encrypted_private_data_length = file_data.size() - 37;
 	}
 
-	system("cls");
 	int incorrect_pw_count = 0;
 	bool correct_pw = false;
 	while (!correct_pw)
 	{
+		std::string in_pw;
 		std::cout << "input password to file:";
+		std::getline(std::cin, in_pw);
 		memset(pw, 0, 1000);
-		std::cin >> pw;
+		for (int i = 0; i < in_pw.length() && i < 999; i++) {
+			pw[i] = in_pw[i];
+		}
 
 		uint8_t* sha_out = get_hash((uint8_t*)pw, 1000);
 		correct_pw = true;
@@ -211,50 +303,229 @@ int main() {
 	}
 
 	//create lists
-	for (long i = 0; i < item_count; i++) {
-		login_places.push_back((char*)&(decrypted_private_data[i * length_of_one_item]));
-		usernames.push_back((char*)&(decrypted_private_data[i * length_of_one_item + login_length]));
-		emails.push_back((char*)&(decrypted_private_data[i * length_of_one_item + login_length + username_length]));
-		passwords.push_back((char*)&(decrypted_private_data[i * length_of_one_item + login_length + username_length + email_length]));
-		additionals.push_back((char*)&(decrypted_private_data[i * length_of_one_item + login_length + username_length + email_length + password_length]));
-	}
+	update_lists();
 
-	//show full short-list = only website names
-	for (char* name : login_places) {
-		std::cout << name << "\n";
-	}
-	std::cout << "\n";
-
+	//show short-list
 	for (int i = 0; i < item_count; i++) {
-		std::cout << login_places[i] << " as " << usernames[i] << " with email:" << emails[i] << "\n";
-		std::cout << "pw:" << passwords[i] << " | additional:" << additionals[i] << "\n";
-		std::cout << std::endl;
+		std::cout << (i + 1) << ":" << login_places[i] << "\n";
 	}
 
-	char login_place[] = "insta";
-	char username[] = "thimo";
-	char email[] = "lol.com";
-	char password[] = "hallooo";
-	char additional[] = "dies ist ein langer text der nicht ganz auf die fläche passt.";
-	//add_item(login_place, username, email, password, additional);
+	std::string login_place;
+	std::string username;
+	std::string email;
+	std::string password;
+	std::string additional;
 
 	//wait for command input:
-	//help
-	//long - outputs long list with names and all data
-	//short - outputs short list with only names
-	//[number] or name - prints all information of single selected item
-	//add - adds new item -> asks for name,email,... -> add item to list and saves immediately
-	//remove - remove item from list -> prints whole list -> asks for number/name -> deletes it and saves immediately
-	//new_pw - set new password
-	//exit - overrides everything it saved into memory -> exits
+	std::string command;
+	while (true) {
+		std::cout << ">";
+		std::cin >> command;
 
-	encrypted_private_data = (uint8_t*)xxtea_encrypt(decrypted_private_data, item_count * length_of_one_item, pw, &out_len);
-	uint8_t* save_data = new uint8_t[37 + out_len];
-	save_data[0] = 1;//version
-	memcpy(&(save_data[1]), pw_hash, 32);
-	memcpy(&(save_data[33]), &item_count, sizeof(int));
-	memcpy(&(save_data[37]), encrypted_private_data, out_len);
-	save_to_file("encrypted.pw", (char*)save_data, 37 + out_len);
+		if (command == "help") {
+			print_help();
+		}
+		else if (command == "exit") {
+			clear_input_buffer();
+			break;
+		}
+		else if (command == "cls") {
+			clear_input_buffer();
+			system("cls");
+		}
+		else if (command == "short") {
+			clear_input_buffer();
+			for (int i = 0; i < item_count; i++) {
+				std::cout << (i + 1) << ":" << login_places[i] << "\n";
+			}
+		}
+		else if (command == "long") {
+			clear_input_buffer();
+			for (int i = 0; i < item_count; i++) {
+				std::cout << "----- " << (i + 1) << ": " << login_places[i] << " -----"
+					<< "\nusername: " << usernames[i]
+					<< "\nemail: " << emails[i]
+					<< "\npassword: " << passwords[i]
+					<< "\nadditional: " << additionals[i]
+					<< "\n\n";
+			}
+		}
+		else if (command == "add") {
+			clear_input_buffer();
+
+			std::cout << "add new item? (y/n): ";
+			char in;
+			std::cin >> in;
+			if (int(in) == 121 || int(in) == 89) {
+			}
+			else {
+				continue;
+			}
+
+			clear_input_buffer();
+			system("cls");
+			std::cout << "login place name: ";
+			std::getline(std::cin, login_place);
+
+			std::cout << "username: ";
+			std::getline(std::cin, username);
+
+			std::cout << "email: ";
+			std::getline(std::cin, email);
+
+			std::cout << "password: ";
+			std::getline(std::cin, password);
+
+			std::cout << "additional text: ";
+			std::getline(std::cin, additional);
+
+			add_item((char*)&(login_place[0]), (char*)&(username[0]), (char*)&(email[0]), (char*)&(password[0]), (char*)&(additional[0]));
+
+			save();
+			std::cout << "-- successfully added item --" << std::endl;
+		}
+		else if (command == "remove") {
+			clear_input_buffer();
+			std::cout << "input number of login place (-1 to exit): ";
+			std::string input;
+			std::cin >> input;
+			if (!is_string_number(input)) {
+				std::cout << "input must be a number" << std::endl;
+				continue;
+			}
+			int number = stoi(input);
+
+			if (number < 1 || number > item_count) {
+				std::cout << "number out of range" << std::endl;
+				continue;
+			}
+
+			login_places.erase(login_places.begin() + (number - 1));
+			usernames.erase(usernames.begin() + (number - 1));
+			emails.erase(emails.begin() + (number - 1));
+			passwords.erase(passwords.begin() + (number - 1));
+			additionals.erase(additionals.begin() + (number - 1));
+
+			shrink_data_to_lists();
+
+			save();
+			std::cout << "removed number " << number << std::endl;
+		}
+		else if (command == "edit") {
+			clear_input_buffer();
+			std::cout << "edit a item? (y/n): ";
+			char in;
+			std::cin >> in;
+			if (int(in) == 121 || int(in) == 89) {
+			}
+			else {
+				continue;
+			}
+
+			clear_input_buffer();
+			std::cout << "input number of login place (-1 to exit): ";
+			std::string input;
+			std::cin >> input;
+			if (!is_string_number(input)) {
+				std::cout << "input must be a number" << std::endl;
+				continue;
+			}
+			int number = stoi(input);
+
+			if (number < 1 || number > item_count) {
+				std::cout << "number out of range" << std::endl;
+				continue;
+			}
+			number--;
+
+			system("cls");
+			clear_input_buffer();
+			std::cout << "old login place name: " << login_places[number]
+				<< "\nnew login place name: ";
+			std::getline(std::cin, login_place);
+
+			std::cout << "\nold username: " << usernames[number]
+				<< "\nnew username: ";
+			std::getline(std::cin, username);
+
+			std::cout << "\nold email: " << emails[number]
+				<< "\nnew email: ";
+			std::getline(std::cin, email);
+
+			std::cout << "\nold password: " << passwords[number]
+				<< "\nnew password: ";
+			std::getline(std::cin, password);
+
+			std::cout << "\nold additional: " << additionals[number]
+				<< "\nnew additional: ";
+			std::getline(std::cin, additional);
+
+			system("cls");
+			std::cout << "=== NEW DATA ==="
+				<< "\nlogin place: " << login_place
+				<< "\nusername: " << username
+				<< "\nemail: " << email
+				<< "\npassword: " << password
+				<< "\nadditional: " << additional
+				<< "\n================\n" << std::endl;
+
+			std::cout << "save changes? (y/n): ";
+			std::cin >> in;
+			if (int(in) == 121 || int(in) == 89) {
+				memset(&(decrypted_private_data[number * length_of_one_item]), 0, length_of_one_item);
+
+				//add data to list
+				memcpy(&(decrypted_private_data[number * length_of_one_item]), &(login_place[0]), login_place.length() >= login_length ? login_length - 1 : login_place.length());
+				memcpy(&(decrypted_private_data[number * length_of_one_item + login_length]), &(username[0]), username.length() >= username_length ? username_length - 1 : username.length());
+				memcpy(&(decrypted_private_data[number * length_of_one_item + login_length + username_length]), &(email[0]), email.length() >= email_length ? email_length - 1 : email.length());
+				memcpy(&(decrypted_private_data[number * length_of_one_item + login_length + username_length + email_length]), &(password[0]), password.length() >= password_length ? password_length - 1 : password.length());
+				memcpy(&(decrypted_private_data[number * length_of_one_item + login_length + username_length + email_length + password_length]), &(additional[0]), additional.length() >= additional_length ? additional_length - 1 : additional.length());
+			}
+			else {
+				std::cout << "discarded!" << std::endl;
+				continue;
+			}
+
+			save();
+			std::cout << "saved changes!" << std::endl;
+		}
+		else if (command == "password") {
+			clear_input_buffer();
+			std::cout << "current password: " << pw << std::endl;
+		}
+		else if (command == "new_pw") {
+			clear_input_buffer();
+			std::cout << "change password? (y/n): ";
+			char in;
+			std::cin >> in;
+			if (int(in) == 121 || int(in) == 89) {
+			}
+			else {
+				system("cls");
+				continue;
+			}
+
+			std::string new_pw;
+			clear_input_buffer();
+			std::cout << "input new password: ";
+			std::getline(std::cin, new_pw);
+
+			memset(pw, 0, 1000);
+			for (int i = 0; i < new_pw.length() && i < 999; i++) {
+				pw[i] = new_pw[i];
+			}
+
+			pw_hash = get_hash(pw, 1000);
+			save();
+			std::cout << "password set to: " << pw << std::endl;
+		}
+		else {
+			clear_input_buffer();
+			std::cout << "unknown command." << std::endl;
+		}
+	}
+
+	save();
 
 	//std::cout << "test" << "\r" << std::flush;
 	clear_and_free_all_data();
