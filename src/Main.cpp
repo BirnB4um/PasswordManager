@@ -1,5 +1,6 @@
-#include "Application.h"
-
+﻿#include "Application.h"
+#include <iostream>
+using namespace std;
 /*
 *  == file layout ==
 *
@@ -10,6 +11,8 @@
 */
 
 int main() {
+	//char abc[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,;:-_#+*~<>!%&/(){}[]=?ßẞ ";
+
 	Application app;
 	app.run();
 

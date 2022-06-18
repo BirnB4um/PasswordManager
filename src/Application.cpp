@@ -1,5 +1,32 @@
 #include "Application.h"
 
+Application::Application() {
+	item_count = 0;
+	length_of_one_item = login_length + username_length + email_length + password_length + additional_length;
+
+	pw = new uint8_t[1000];
+	pw_hash = nullptr;
+
+	encrypted_private_data = nullptr;
+	decrypted_private_data = nullptr;
+
+	aes = AES(AESKeyLength::AES_256);
+}
+
+Application::~Application() {
+	memset(pw, 0, 1000);
+	delete[] pw;
+
+	if (decrypted_private_data != nullptr) {
+		memset(decrypted_private_data, 0, item_count * length_of_one_item);
+		delete[] decrypted_private_data;
+	}
+	//std::ofstream file("exit.txt", std::ios::out | std::ios::binary);
+	//file << "RAM successfully overwritten!";
+	//file.close();
+	std::cout << "RAM successfully overwritten!" << std::endl;
+}
+
 bool Application::save_to_file(std::string file_name, const char output_data[], const int data_size) {
 	if (file_name == "")
 		return false;
@@ -22,6 +49,20 @@ bool Application::read_from_file(std::string file_name, std::vector<char>& input
 	input_data = std::vector<char>((std::istreambuf_iterator<char>(input)), (std::istreambuf_iterator<char>()));
 	input.close();
 	return true;
+}
+
+/*
+0: Black		   8: Grey
+1: Blue			   9: Bright blue
+2: Green		   A: Brigth green
+3: Cyan			   B: Bright cyan
+4: Red			   C: Bright red
+5: Purple		   D: Pink
+6: Dark Yellow	   E: Yellow
+7: White		   F: Bright white
+*/
+void Application::set_color(int color) {
+	SetConsoleTextAttribute(hStdOut, color);
 }
 
 void Application::update_lists() {
@@ -60,6 +101,10 @@ void Application::add_item(char* login_place, char* username, char* email, char*
 	item_count++;
 
 	update_lists();
+
+	sort_list();
+
+	save();
 }
 
 void Application::shrink_data_to_lists() {
@@ -89,14 +134,40 @@ uint8_t* Application::get_hash(uint8_t* data, size_t size) {
 }
 
 void Application::save() {
-	size_t out_len = 0;
-	encrypted_private_data = (uint8_t*)xxtea_encrypt(decrypted_private_data, item_count * length_of_one_item, pw, &out_len);
-	uint8_t* save_data = new uint8_t[37 + out_len];
+	//=== compress decrypted data ===
+
+	//calc size for compressed save buffer
+	size_t save_size = item_count * 5;
+	for (int item_offset = 0; item_offset < item_count; item_offset++) {
+		for (int offset = 0; offset < 5; offset++) {
+			save_size += strlen((char*)&decrypted_private_data[item_offset * length_of_one_item + offset * 256]);
+		}
+	}
+	//append to size to be multiple of 16 for AES
+	save_size = (1.0f - ((double(save_size) / 16) - int(double(save_size) / 16))) * 16 + save_size;
+
+	//create and fill compressed save buffer
+	uint8_t* compressed_data = new uint8_t[save_size];
+	memset(compressed_data, 0, save_size);
+	size_t save_offset = 0;
+	for (int item_offset = 0; item_offset < item_count; item_offset++) {
+		for (int offset = 0; offset < 5; offset++) {
+			int str_len = strlen((char*)&decrypted_private_data[item_offset * length_of_one_item + offset * 256]);
+			compressed_data[save_offset] = str_len;
+			save_offset++;
+			memcpy(&compressed_data[save_offset], &decrypted_private_data[item_offset * length_of_one_item + offset * 256], str_len);
+			save_offset += str_len;
+		}
+	}
+
+	//encrypt and save
+	encrypted_private_data = (uint8_t*)aes.EncryptECB(compressed_data, save_size, pw);
+	uint8_t* save_data = new uint8_t[37 + save_size];
 	save_data[0] = 1;//version
 	memcpy(&(save_data[1]), pw_hash, 32);//pw hash
 	memcpy(&(save_data[33]), &item_count, sizeof(int));//item count
-	memcpy(&(save_data[37]), encrypted_private_data, out_len);//encrypted data
-	save_to_file("encrypted.pw", (char*)save_data, 37 + out_len);
+	memcpy(&(save_data[37]), encrypted_private_data, save_size);//encrypted data
+	save_to_file("encrypted.pw", (char*)save_data, 37 + save_size);
 	delete[] save_data;
 }
 
@@ -114,12 +185,80 @@ bool Application::is_string_number(std::string str) {
 	return true;
 }
 
+int Application::get_number_in_abc(char* c) {
+	for (int i = 0; i < 62; i++) {
+		if (abc_order[i] == *c)
+			return i + 1;
+	}
+	return 100;
+}
+
+bool Application::string_later(char* str, char* compare_str) {
+	int i = 0;
+	while (true) {
+		//if end of string
+		if (str[i] == 0)
+			return false;
+
+		//if end of compare_str
+		if (compare_str[i] == 0)
+			return true;
+
+		if (get_number_in_abc(&(str[i])) < get_number_in_abc(&(compare_str[i]))) {
+			return false;
+		}
+		else if (get_number_in_abc(&(str[i])) > get_number_in_abc(&(compare_str[i]))) {
+			return true;
+		}
+
+		i++;
+	}
+}
+
+void Application::sort_list() {
+	if (item_count < 2)
+		return;
+
+	int* index_list = new int[item_count];
+	for (int i = 0; i < item_count; i++) {
+		index_list[i] = i;
+	}
+
+	//sort alphabetically
+	for (int N = item_count - 1; N > 0; N--) {
+		for (int n = 0; n < N; n++) {
+			if (string_later(login_places[index_list[n]], login_places[index_list[n + 1]])) {
+				int temp = index_list[n];
+				index_list[n] = index_list[n + 1];
+				index_list[n + 1] = temp;
+			}
+		}
+	}
+
+	//rearange strings in list
+	uint8_t* new_list = new uint8_t[item_count * length_of_one_item];
+	memset(new_list, 0, item_count * length_of_one_item);//unnötig aber ich bin paranoid dass da noch etwas drinnen bleibt
+	for (int i = 0; i < item_count; i++) {
+		memcpy(&(new_list[i * length_of_one_item]), &(decrypted_private_data[index_list[i] * length_of_one_item]), length_of_one_item);
+	}
+	memset(decrypted_private_data, 0, item_count * length_of_one_item);
+	delete[] decrypted_private_data;
+	decrypted_private_data = new_list;
+
+	update_lists();
+
+	delete[] index_list;
+
+	std::cout << "successfully sorted list!" << std::endl;
+}
+
 void Application::print_help() {
 	std::cout << " === HELP MENU ===\n"
 		<< "    - commands: -\n"
 		<< " help - shows this menu\n"
 		<< " exit - cleans up data and exits\n"
 		<< " cls - clears console\n"
+		<< " sort - sort list alphabetically\n"
 		<< " get - print data from selected item\n"
 		<< " short - prints list of all item names\n"
 		<< " long - prints detailed list of all items\n"
@@ -140,30 +279,8 @@ void Application::print_short_list() {
 	std::cout << "-----\n";
 }
 
-Application::Application() {
-	item_count = 0;
-	length_of_one_item = login_length + username_length + email_length + password_length + additional_length;
-
-	pw = new uint8_t[1000];
-	pw_hash = nullptr;
-
-	encrypted_private_data_length = 0;
-	encrypted_private_data = nullptr;
-	decrypted_private_data = nullptr;
-}
-
-Application::~Application() {
-	memset(pw, 0, 1000);
-	delete[] pw;
-
-	if (decrypted_private_data != nullptr) {
-		memset(decrypted_private_data, 0, item_count * length_of_one_item);
-		delete[] decrypted_private_data;
-	}
-}
-
 void Application::run() {
-	//create file if not existent
+	//create file if it doesnt exist already
 	std::ifstream input("encrypted.pw", std::ios::binary);
 	if (!input.good()) {
 		std::cout << "ERROR: file 'encrypted.pw' is missing" << std::endl;
@@ -181,7 +298,7 @@ void Application::run() {
 			for (int i = 0; i < new_pw.length() && i < 999; i++) {
 				pw[i] = new_pw[i];
 			}
-			std::cout << "new password set to:" << pw << std::endl;
+			std::cout << "password set to:" << pw << std::endl;
 
 			char out_data[37];
 			out_data[0] = 1;//version
@@ -200,7 +317,7 @@ void Application::run() {
 	}
 	input.close();
 
-	//get data from file
+	//load data from file
 	std::vector<char> file_data;
 	if (!read_from_file("encrypted.pw", file_data)) {
 		std::cout << "ERROR: couldnt read from file" << std::endl;
@@ -208,6 +325,10 @@ void Application::run() {
 		return;
 	}
 
+	if (file_data.size() < 37) {
+		std::cout << "Datei ist kaputt" << std::endl;;
+		return;
+	}
 	system("cls");
 
 	//check version
@@ -220,10 +341,9 @@ void Application::run() {
 
 	//copy data from file
 	pw_hash = (uint8_t*)&(file_data[1]);//pw hash
-	memcpy(&item_count, (int*)&(file_data[33]), 4);//item count
+	memcpy(&item_count, (unsigned int*)&(file_data[33]), 4);//item count
 	if (item_count > 0) {
 		encrypted_private_data = (uint8_t*)&(file_data[37]);//encrypted data
-		encrypted_private_data_length = file_data.size() - 37;
 	}
 
 	int incorrect_pw_count = 0;
@@ -261,9 +381,22 @@ void Application::run() {
 	std::cout << "type 'help' for help-menu" << std::endl;
 
 	//decrypt data
-	size_t out_len = 0;
 	if (encrypted_private_data != nullptr) {
-		decrypted_private_data = (uint8_t*)xxtea_decrypt(encrypted_private_data, encrypted_private_data_length, pw, &out_len);
+		size_t data_size = file_data.size() - 37;
+		decrypted_private_data = (uint8_t*)aes.DecryptECB(encrypted_private_data, data_size, pw);
+
+		//uncompress decrypted data
+		uint8_t* decompressed_data = new uint8_t[item_count * length_of_one_item];
+		memset(decompressed_data, 0, item_count * length_of_one_item);
+		size_t off = 0;
+		for (int item_offset = 0; item_offset < item_count; item_offset++) {
+			for (int offset = 0; offset < 5; offset++) {
+				memcpy(&decompressed_data[item_offset * length_of_one_item + offset * 256], &decrypted_private_data[off + 1], decrypted_private_data[off]);
+				off += 1 + decrypted_private_data[off];
+			}
+		}
+		delete[] decrypted_private_data;
+		decrypted_private_data = decompressed_data;
 	}
 
 	//create lists
@@ -285,11 +418,17 @@ void Application::run() {
 		if (command == "help") {
 			print_help();
 		}
+		else if (command == "debug") {
+			break;
+		}
 		else if (command == "exit") {
 			break;
 		}
 		else if (command == "cls") {
 			system("cls");
+		}
+		else if (command == "sort") {
+			sort_list();
 		}
 		else if (command == "short") {
 			print_short_list();
@@ -333,7 +472,6 @@ void Application::run() {
 
 			add_item((char*)&(login_place[0]), (char*)&(username[0]), (char*)&(email[0]), (char*)&(password[0]), (char*)&(additional[0]));
 
-			save();
 			std::cout << "-- successfully added item --" << std::endl;
 		}
 		else if (command == "get") {
@@ -343,7 +481,7 @@ void Application::run() {
 			std::string input;
 			std::cin >> input;
 			if (!is_string_number(input)) {
-				std::cout << "input must be a number" << std::endl;
+				std::cout << "input must be a positive number" << std::endl;
 				continue;
 			}
 			int number = stoi(input);
@@ -353,11 +491,12 @@ void Application::run() {
 				continue;
 			}
 
-			std::cout << "\n+----- " << number << ": " << login_places[number - 1] << " --------------"
-				<< "\n| username: " << usernames[number - 1]
-				<< "\n| email: " << emails[number - 1]
-				<< "\n| password: " << passwords[number - 1]
-				<< "\n| additional: " << additionals[number - 1]
+			number--;
+			std::cout << "\n+----- " << (number + 1) << ": " << login_places[number] << " --------------"
+				<< "\n| username: " << usernames[number]
+				<< "\n| email: " << emails[number]
+				<< "\n| password: " << passwords[number]
+				<< "\n| additional: " << additionals[number]
 				<< "\n+------------------------------\n";
 		}
 		else if (command == "remove") {
@@ -367,7 +506,7 @@ void Application::run() {
 			std::string input;
 			std::cin >> input;
 			if (!is_string_number(input)) {
-				std::cout << "input must be a number" << std::endl;
+				std::cout << "input must be a positive number" << std::endl;
 				continue;
 			}
 			int number = stoi(input);
@@ -405,7 +544,7 @@ void Application::run() {
 			std::string input;
 			std::cin >> input;
 			if (!is_string_number(input)) {
-				std::cout << "input must be a number" << std::endl;
+				std::cout << "input must be a positive number" << std::endl;
 				continue;
 			}
 			int number = stoi(input);
