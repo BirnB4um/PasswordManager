@@ -53,8 +53,10 @@ private:
 	void sort_list();
 	bool string_later(char* str, char* compare_str);
 	void set_color(int color);
+	void overwrite_ram();
 
 public:
+	void handle_exit();
 	const char* abc_order = "0123456789aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ";
 	Application();
 	~Application();

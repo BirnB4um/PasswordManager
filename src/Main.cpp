@@ -1,19 +1,41 @@
 ﻿#include "Application.h"
 #include <iostream>
 using namespace std;
+
 /*
-*  == file layout ==
+*  == save-file layout ==
 *
 * -1 byte -> version number
-* -32 bytes -> pw hash (sha256)
+* -32 bytes -> pw hash
 * -4 bytes -> number of items (unsiged int)
-* -...bytes -> private data
+* -...bytes -> encrypted private data
 */
 
-int main() {
-	//char abc[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,;:-_#+*~<>!%&/(){}[]=?ßẞ ";
+Application app;
+BOOL WINAPI ConsoleHandlerRoutine(DWORD dwCtrlType) {
+	/*
+	CTRL_SHUTDOWN_EVENT
+	CTRL_LOGOFF_EVENT
+	CTRL_C_EVENT
+	CTRL_CLOSE_EVENT
+	*/
+	if (CTRL_C_EVENT == dwCtrlType) {
+		app.handle_exit();
+		return FALSE;
+	}
 
-	Application app;
+	if (CTRL_CLOSE_EVENT == dwCtrlType || CTRL_SHUTDOWN_EVENT == dwCtrlType) {
+		app.handle_exit();
+		return TRUE;
+	}
+	return FALSE;
+}
+
+int main() {
+	if (FALSE == SetConsoleCtrlHandler(ConsoleHandlerRoutine, TRUE)) {
+		std::cout << "ERROR: cannot register handler. RAM will only be overwritten when programm is closed via 'exit' command!" << std::endl;
+	}
+
 	app.run();
 
 	return 0;

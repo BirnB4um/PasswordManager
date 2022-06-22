@@ -14,16 +14,27 @@ Application::Application() {
 }
 
 Application::~Application() {
-	memset(pw, 0, 1000);
-	delete[] pw;
+	handle_exit();
+}
+
+void Application::handle_exit() {
+	save();
+	overwrite_ram();
+}
+
+void Application::overwrite_ram() {
+	if (pw != nullptr) {
+		memset(pw, 0, 1000);
+		delete[] pw;
+		pw = nullptr;
+	}
 
 	if (decrypted_private_data != nullptr) {
 		memset(decrypted_private_data, 0, item_count * length_of_one_item);
 		delete[] decrypted_private_data;
+		decrypted_private_data = nullptr;
 	}
-	//std::ofstream file("exit.txt", std::ios::out | std::ios::binary);
-	//file << "RAM successfully overwritten!";
-	//file.close();
+
 	std::cout << "RAM successfully overwritten!" << std::endl;
 }
 
@@ -134,6 +145,9 @@ uint8_t* Application::get_hash(uint8_t* data, size_t size) {
 }
 
 void Application::save() {
+	if (decrypted_private_data == nullptr || item_count <= 0)
+		return;
+
 	//=== compress decrypted data ===
 
 	//calc size for compressed save buffer
@@ -161,6 +175,7 @@ void Application::save() {
 	}
 
 	//encrypt and save
+	uint8_t* temp = encrypted_private_data;
 	encrypted_private_data = (uint8_t*)aes.EncryptECB(compressed_data, save_size, pw);
 	uint8_t* save_data = new uint8_t[37 + save_size];
 	save_data[0] = 1;//version
@@ -168,6 +183,8 @@ void Application::save() {
 	memcpy(&(save_data[33]), &item_count, sizeof(int));//item count
 	memcpy(&(save_data[37]), encrypted_private_data, save_size);//encrypted data
 	save_to_file("encrypted.pw", (char*)save_data, 37 + save_size);
+	delete[] encrypted_private_data;
+	encrypted_private_data = temp;
 	delete[] save_data;
 }
 
@@ -638,6 +655,4 @@ void Application::run() {
 			std::cout << "unknown command." << std::endl;
 		}
 	}
-
-	save();
 }
