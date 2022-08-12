@@ -14,6 +14,7 @@
 class Application
 {
 private:
+
 	//VARIABLES
 	HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
 

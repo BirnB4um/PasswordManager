@@ -32,6 +32,8 @@ BOOL WINAPI ConsoleHandlerRoutine(DWORD dwCtrlType) {
 }
 
 int main() {
+	SetConsoleTitleA("Password Manager - version 0.1");
+
 	if (FALSE == SetConsoleCtrlHandler(ConsoleHandlerRoutine, TRUE)) {
 		std::cout << "ERROR: cannot register handler. RAM will only be overwritten when programm is closed via 'exit' command!" << std::endl;
 	}

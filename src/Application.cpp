@@ -284,6 +284,7 @@ void Application::print_help() {
 		<< " edit - edit item by number\n"
 		<< " password - prints current password\n"
 		<< " new_pw - set new password\n"
+		<< " update - check github for latest version\n"
 		<< "============================="
 		<< std::endl;
 }
@@ -650,6 +651,9 @@ void Application::run() {
 			pw_hash = get_hash(pw, 1000);
 			save();
 			std::cout << "password set to: " << pw << std::endl;
+		}
+		else if (command == "update") {
+			std::cout << "check latest version on https://github.com/BirnB4um/PasswordManager" << std::endl;
 		}
 		else {
 			std::cout << "unknown command." << std::endl;
